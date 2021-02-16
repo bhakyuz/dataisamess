@@ -32,6 +32,6 @@ permalink: /:year-:month-:day/:title
 paginate: 5
 
 # Excludes
-exclude: [Gemfile, Gemfile.lock, tale.gemspec]
+exclude: [Gemfile, Gemfile.lock, tale.gemspec, py]
 # Disqus (Set to your disqus id)
 # disqus: jekyll-tale
