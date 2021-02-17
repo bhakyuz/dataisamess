@@ -57,7 +57,8 @@
     &-title {
       color: $default-color;
       text-decoration: none;
-      white-space: nowrap;
+      white-space: normal;
+      // white-space: pre-line;
       overflow: hidden;
       text-overflow: ellipsis;
     }

@@ -67,7 +67,7 @@ summarized2_2
 # 4  5  2  10.0
 ```
 
-### Missing data on dimension
+### Missing values on dimensions
 
 When the missing values are on the dimension that we grouping data by, we come across a more surprising issue. Dimensions that includes any missing values are silently dropped.
 
@@ -104,7 +104,7 @@ Notice that the above findings occur while working with pandas 1.1.0. A new para
 
 I have also been having some troubles with the indexes while I was trying to group by on empty data frames. I wanted to provide some hints about that, too but I could not constantly reproduce the errors. So nothing to add for no now about that. It might be the topic of another post.
 
-Thanks for reading. For information above examples are tested with pandas 1.0.5:
+For information above examples are done with pandas 1.0.5:
 
 ```py
 import pandas as pd
@@ -117,3 +117,7 @@ pd.show_versions()
 # pandas           : 1.0.5
 # numpy            : 1.20.1
 ```
+
+Thanks for reading.
+
+(last edited on 2021/02/15)
