@@ -1,6 +1,6 @@
 ---
 layout: post
-title: "Clickhouse bug while reading csv from a S3 path containing white space"
+title: "Clickhouse bug while reading csv from a S3 path containing white space [FIXED]"
 author: "bhakyuz"
 tags: ["clickhouse", "bug"]
 ---
@@ -70,3 +70,8 @@ Code: 1000. DB::Exception: Received from localhost:9000. DB::Exception: Bad URI 
 I've created my very [first issue](https://github.com/ClickHouse/ClickHouse/issues/88936) in clickhouse repo to contribute. I've seen that similar issue was [reported](https://github.com/ClickHouse/ClickHouse/issues/54345) and supposedly fixed previously. Hopefully in no time, this will get fixed. 
 
 In our current setup at TM, we have had some s3 urls like the one in the example. Ideally, we should be able to load into clickhouse independently but if not we might need re-visit the paths that we create in our s3 buckets.   
+
+
+## Here comes the fix
+
+After creating issue, [jagadam97](https://github.com/jagadam97) mentioned that I should try replacing white spaces by `%20`. And tadaa, it worked my problem is gone. Turns outs that I was supposed to escape white spaces very at the first place.
