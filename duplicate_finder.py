@@ -7,6 +7,7 @@ Finds duplicate files based on filename, size, and/or creation timestamp.
 import os
 import sys
 import argparse
+import hashlib
 from collections import defaultdict
 from pathlib import Path
 from datetime import datetime
@@ -47,7 +48,30 @@ def getch():
             return line.strip()[:1] if line else 'n'
 
 
-def find_duplicates(root_path, check_name=True, check_size=True, check_timestamp=True):
+def calculate_file_hash(filepath, algorithm='sha256', chunk_size=8192):
+    """
+    Calculate hash of file content.
+
+    Args:
+        filepath: Path to the file
+        algorithm: Hash algorithm to use (md5, sha1, sha256)
+        chunk_size: Size of chunks to read (8KB default)
+
+    Returns:
+        Hexadecimal hash string
+    """
+    hash_obj = hashlib.new(algorithm)
+    try:
+        with open(filepath, 'rb') as f:
+            for chunk in iter(lambda: f.read(chunk_size), b''):
+                hash_obj.update(chunk)
+        return hash_obj.hexdigest()
+    except (OSError, IOError) as e:
+        print(f"Error hashing {filepath}: {e}")
+        return None
+
+
+def find_duplicates(root_path, check_name=True, check_size=True, check_timestamp=True, check_hash=False, hash_algorithm='sha256'):
     """
     Find duplicate files based on selected criteria.
 
@@ -56,6 +80,8 @@ def find_duplicates(root_path, check_name=True, check_size=True, check_timestamp
         check_name: Include filename in duplicate detection
         check_size: Include file size in duplicate detection
         check_timestamp: Include modification timestamp in duplicate detection
+        check_hash: Use content hash for duplicate detection (overrides other criteria)
+        hash_algorithm: Hash algorithm to use (md5, sha1, sha256)
 
     Returns:
         Dictionary where key is tuple of selected attributes and value is list of (filepath, metadata) tuples
@@ -65,27 +91,54 @@ def find_duplicates(root_path, check_name=True, check_size=True, check_timestamp
 
     # Build criteria description
     criteria = []
-    if check_name:
-        criteria.append("name")
-    if check_size:
-        criteria.append("size")
-    if check_timestamp:
-        criteria.append("timestamp")
+    if check_hash:
+        criteria.append("hash")
+        print(f"Scanning directory: {root_path}")
+        print(f"Duplicate criteria: content hash ({hash_algorithm})")
+        print("Note: Hash-based detection ignores name, size, and timestamp")
+    else:
+        if check_name:
+            criteria.append("name")
+        if check_size:
+            criteria.append("size")
+        if check_timestamp:
+            criteria.append("timestamp")
 
-    criteria_str = ", ".join(criteria) if criteria else "no criteria (all files will match!)"
-    print(f"Scanning directory: {root_path}")
-    print(f"Duplicate criteria: {criteria_str}")
+        criteria_str = ", ".join(criteria) if criteria else "no criteria (all files will match!)"
+        print(f"Scanning directory: {root_path}")
+        print(f"Duplicate criteria: {criteria_str}")
 
+    # First pass: collect all files
+    all_files = []
     for dirpath, dirnames, filenames in os.walk(root_path):
         for filename in filenames:
             filepath = os.path.join(dirpath, filename)
-            try:
-                stat_info = os.stat(filepath)
-                file_size = stat_info.st_size
-                # Use modification time (most reliable across platforms)
-                file_mtime = int(stat_info.st_mtime)
+            all_files.append((filepath, filename))
 
-                # Build key based on selected criteria
+    total_files = len(all_files)
+    print(f"Found {total_files} files to process")
+
+    # Second pass: process files with progress
+    for idx, (filepath, filename) in enumerate(all_files, 1):
+        try:
+            stat_info = os.stat(filepath)
+            file_size = stat_info.st_size
+            file_mtime = int(stat_info.st_mtime)
+
+            # Calculate hash if requested
+            file_hash = None
+            if check_hash:
+                # Show progress every 10 files or for the last file
+                if idx % 10 == 0 or idx == total_files:
+                    print(f"Hashing files... {idx}/{total_files} ({idx*100//total_files}%)", end='\r', flush=True)
+                file_hash = calculate_file_hash(filepath, hash_algorithm)
+                if file_hash is None:
+                    continue  # Skip files that failed to hash
+
+            # Build key based on selected criteria
+            if check_hash:
+                key = (file_hash,)
+            else:
                 key_parts = []
                 if check_name:
                     key_parts.append(filename)
@@ -93,22 +146,24 @@ def find_duplicates(root_path, check_name=True, check_size=True, check_timestamp
                     key_parts.append(file_size)
                 if check_timestamp:
                     key_parts.append(file_mtime)
-
                 key = tuple(key_parts) if key_parts else ("all_files",)
 
-                # Store filepath along with metadata for display
-                metadata = {
-                    'name': filename,
-                    'size': file_size,
-                    'mtime': file_mtime,
-                    'mtime_str': datetime.fromtimestamp(file_mtime).strftime('%Y-%m-%d %H:%M:%S')
-                }
-                file_map[key].append((filepath, metadata))
-                file_count += 1
-            except (OSError, IOError) as e:
-                print(f"Error accessing {filepath}: {e}")
+            # Store filepath along with metadata for display
+            metadata = {
+                'name': filename,
+                'size': file_size,
+                'mtime': file_mtime,
+                'mtime_str': datetime.fromtimestamp(file_mtime).strftime('%Y-%m-%d %H:%M:%S'),
+                'hash': file_hash
+            }
+            file_map[key].append((filepath, metadata))
+            file_count += 1
+        except (OSError, IOError) as e:
+            print(f"\nError accessing {filepath}: {e}")
 
-    print(f"Scanned {file_count} files")
+    if check_hash:
+        print()  # New line after progress
+    print(f"Processed {file_count} files")
 
     # Filter to only duplicates (where there are 2+ files with same key)
     duplicates = {k: v for k, v in file_map.items() if len(v) > 1}
@@ -133,21 +188,30 @@ def display_duplicates(duplicates, criteria):
         first_metadata = file_list[0][1]
 
         print(f"\nDuplicate set:")
-        if 'name' in criteria:
-            print(f"  Filename: {first_metadata['name']}")
-        if 'size' in criteria:
+        if 'hash' in criteria:
+            print(f"  Content Hash: {first_metadata['hash'][:16]}... ({len(first_metadata['hash'])} chars)")
             print(f"  Size: {first_metadata['size']:,} bytes")
-        if 'timestamp' in criteria:
-            print(f"  Modified: {first_metadata['mtime_str']}")
+        else:
+            if 'name' in criteria:
+                print(f"  Filename: {first_metadata['name']}")
+            if 'size' in criteria:
+                print(f"  Size: {first_metadata['size']:,} bytes")
+            if 'timestamp' in criteria:
+                print(f"  Modified: {first_metadata['mtime_str']}")
 
         print(f"  Found {len(file_list)} copies:")
         for i, (path, metadata) in enumerate(file_list, 1):
             # Show additional info if not used in criteria
             extra_info = []
-            if 'timestamp' not in criteria:
+            if 'hash' in criteria:
+                # Show name and timestamp as extra info
+                extra_info.append(f"name: {metadata['name']}")
                 extra_info.append(f"modified: {metadata['mtime_str']}")
-            if 'size' not in criteria:
-                extra_info.append(f"size: {metadata['size']:,} bytes")
+            else:
+                if 'timestamp' not in criteria:
+                    extra_info.append(f"modified: {metadata['mtime_str']}")
+                if 'size' not in criteria:
+                    extra_info.append(f"size: {metadata['size']:,} bytes")
 
             extra_str = f" ({', '.join(extra_info)})" if extra_info else ""
             print(f"    [{i}] {path}{extra_str}")
@@ -246,12 +310,15 @@ def delete_duplicates_auto(duplicates, keep_first=True):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Find and manage duplicate files based on filename, size, and/or timestamp",
+        description="Find and manage duplicate files based on filename, size, timestamp, or content hash",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
   # Find duplicates (default: check name, size, and timestamp)
   python duplicate_finder.py /path/to/folder
+
+  # Find duplicates by content hash (most accurate, slower)
+  python duplicate_finder.py /path/to/folder --check-hash
 
   # Find duplicates by name and size only (ignore timestamp)
   python duplicate_finder.py /path/to/folder --no-check-timestamp
@@ -261,6 +328,9 @@ Examples:
 
   # Find and interactively delete duplicates
   python duplicate_finder.py /path/to/folder --delete-interactive
+
+  # Find by hash and delete interactively
+  python duplicate_finder.py /path/to/folder --check-hash -i
 
   # Automatically delete duplicates (keep first occurrence)
   python duplicate_finder.py /path/to/folder --delete-auto
@@ -315,6 +385,22 @@ Examples:
         help='Do not check modification timestamp when finding duplicates'
     )
 
+    parser.add_argument(
+        '--check-hash',
+        dest='check_hash',
+        action='store_true',
+        default=False,
+        help='Use content hash for duplicate detection (most accurate, overrides other criteria)'
+    )
+
+    parser.add_argument(
+        '--hash-algorithm',
+        dest='hash_algorithm',
+        default='sha256',
+        choices=['md5', 'sha1', 'sha256'],
+        help='Hash algorithm to use with --check-hash (default: sha256)'
+    )
+
     # Deletion options
     delete_group = parser.add_mutually_exclusive_group()
     delete_group.add_argument(
@@ -335,18 +421,29 @@ Examples:
         print(f"Error: '{args.path}' is not a valid directory")
         return 1
 
-    # Validate criteria - at least one must be checked
-    if not (args.check_name or args.check_size or args.check_timestamp):
-        print("Error: At least one criteria (name, size, or timestamp) must be checked")
-        return 1
+    # When using hash, override other criteria
+    if args.check_hash:
+        print("Using content hash for duplicate detection")
+        print("Note: Name, size, and timestamp criteria are ignored when using --check-hash\n")
+        duplicates, criteria = find_duplicates(
+            args.path,
+            check_hash=True,
+            hash_algorithm=args.hash_algorithm
+        )
+    else:
+        # Validate criteria - at least one must be checked
+        if not (args.check_name or args.check_size or args.check_timestamp):
+            print("Error: At least one criteria (name, size, or timestamp) must be checked")
+            return 1
 
-    # Find duplicates
-    duplicates, criteria = find_duplicates(
-        args.path,
-        check_name=args.check_name,
-        check_size=args.check_size,
-        check_timestamp=args.check_timestamp
-    )
+        # Find duplicates using metadata
+        duplicates, criteria = find_duplicates(
+            args.path,
+            check_name=args.check_name,
+            check_size=args.check_size,
+            check_timestamp=args.check_timestamp,
+            check_hash=False
+        )
 
     # Display results
     display_duplicates(duplicates, criteria)
