@@ -71,7 +71,47 @@ def calculate_file_hash(filepath, algorithm='sha256', chunk_size=8192):
         return None
 
 
-def find_duplicates(root_path, check_name=True, check_size=True, check_timestamp=True, check_hash=False, hash_algorithm='sha256'):
+def calculate_perceptual_hash(filepath, hash_size=16):
+    """
+    Calculate perceptual hash of an image.
+    Uses phash (DCT-based) which is good for finding resized/edited images.
+
+    Args:
+        filepath: Path to the image file
+        hash_size: Size of the hash (16 = 64x64 image comparison)
+
+    Returns:
+        imagehash object (can be compared with other hashes)
+    """
+    try:
+        from PIL import Image
+        import imagehash
+    except ImportError:
+        print("Error: imagehash and Pillow libraries required for perceptual hashing")
+        print("Install with: pip install Pillow imagehash")
+        return None
+
+    # Supported image formats
+    image_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.webp'}
+    ext = os.path.splitext(filepath)[1].lower()
+
+    if ext not in image_extensions:
+        return None  # Not an image file
+
+    try:
+        img = Image.open(filepath)
+        # Use phash with custom hash_size (16 = 64x64, 8 = 8x8)
+        # Higher hash_size = more accuracy but less tolerance for changes
+        phash = imagehash.phash(img, hash_size=hash_size)
+        return phash
+    except (OSError, IOError, Exception) as e:
+        # Skip files that can't be opened as images
+        return None
+
+
+def find_duplicates(root_path, check_name=True, check_size=True, check_timestamp=True,
+                    check_hash=False, hash_algorithm='sha256',
+                    check_perceptual_hash=False, perceptual_threshold=10, perceptual_hash_size=16):
     """
     Find duplicate files based on selected criteria.
 
@@ -82,6 +122,9 @@ def find_duplicates(root_path, check_name=True, check_size=True, check_timestamp
         check_timestamp: Include modification timestamp in duplicate detection
         check_hash: Use content hash for duplicate detection (overrides other criteria)
         hash_algorithm: Hash algorithm to use (md5, sha1, sha256)
+        check_perceptual_hash: Use perceptual hash for image duplicate detection
+        perceptual_threshold: Hamming distance threshold for perceptual hash (0-64, lower = more strict)
+        perceptual_hash_size: Hash size for perceptual hashing (16 = 64x64 image)
 
     Returns:
         Dictionary where key is tuple of selected attributes and value is list of (filepath, metadata) tuples
@@ -91,7 +134,14 @@ def find_duplicates(root_path, check_name=True, check_size=True, check_timestamp
 
     # Build criteria description
     criteria = []
-    if check_hash:
+    if check_perceptual_hash:
+        criteria.append("perceptual_hash")
+        print(f"Scanning directory: {root_path}")
+        print(f"Duplicate criteria: perceptual hash (image similarity)")
+        print(f"Similarity threshold: {perceptual_threshold} (0=identical, 64=completely different)")
+        print(f"Hash size: {perceptual_hash_size}x{perceptual_hash_size} = {perceptual_hash_size*4}x{perceptual_hash_size*4} pixel comparison")
+        print("Note: Only processes image files (jpg, png, gif, bmp, tiff, webp)")
+    elif check_hash:
         criteria.append("hash")
         print(f"Scanning directory: {root_path}")
         print(f"Duplicate criteria: content hash ({hash_algorithm})")
@@ -119,6 +169,8 @@ def find_duplicates(root_path, check_name=True, check_size=True, check_timestamp
     print(f"Found {total_files} files to process")
 
     # Second pass: process files with progress
+    perceptual_hashes = []  # List of (filepath, phash, metadata) for perceptual mode
+
     for idx, (filepath, filename) in enumerate(all_files, 1):
         try:
             stat_info = os.stat(filepath)
@@ -127,7 +179,27 @@ def find_duplicates(root_path, check_name=True, check_size=True, check_timestamp
 
             # Calculate hash if requested
             file_hash = None
-            if check_hash:
+            file_phash = None
+
+            if check_perceptual_hash:
+                # Show progress
+                if idx % 10 == 0 or idx == total_files:
+                    print(f"Calculating perceptual hashes... {idx}/{total_files} ({idx*100//total_files}%)", end='\r', flush=True)
+                file_phash = calculate_perceptual_hash(filepath, hash_size=perceptual_hash_size)
+                if file_phash is None:
+                    continue  # Skip non-image files or files that failed
+                # Store for later comparison
+                metadata = {
+                    'name': filename,
+                    'size': file_size,
+                    'mtime': file_mtime,
+                    'mtime_str': datetime.fromtimestamp(file_mtime).strftime('%Y-%m-%d %H:%M:%S'),
+                    'phash': str(file_phash),
+                    'phash_obj': file_phash
+                }
+                perceptual_hashes.append((filepath, file_phash, metadata))
+                file_count += 1
+            elif check_hash:
                 # Show progress every 10 files or for the last file
                 if idx % 10 == 0 or idx == total_files:
                     print(f"Hashing files... {idx}/{total_files} ({idx*100//total_files}%)", end='\r', flush=True)
@@ -135,10 +207,19 @@ def find_duplicates(root_path, check_name=True, check_size=True, check_timestamp
                 if file_hash is None:
                     continue  # Skip files that failed to hash
 
-            # Build key based on selected criteria
-            if check_hash:
+                # Build key and store
                 key = (file_hash,)
+                metadata = {
+                    'name': filename,
+                    'size': file_size,
+                    'mtime': file_mtime,
+                    'mtime_str': datetime.fromtimestamp(file_mtime).strftime('%Y-%m-%d %H:%M:%S'),
+                    'hash': file_hash
+                }
+                file_map[key].append((filepath, metadata))
+                file_count += 1
             else:
+                # Metadata-based detection
                 key_parts = []
                 if check_name:
                     key_parts.append(filename)
@@ -148,22 +229,53 @@ def find_duplicates(root_path, check_name=True, check_size=True, check_timestamp
                     key_parts.append(file_mtime)
                 key = tuple(key_parts) if key_parts else ("all_files",)
 
-            # Store filepath along with metadata for display
-            metadata = {
-                'name': filename,
-                'size': file_size,
-                'mtime': file_mtime,
-                'mtime_str': datetime.fromtimestamp(file_mtime).strftime('%Y-%m-%d %H:%M:%S'),
-                'hash': file_hash
-            }
-            file_map[key].append((filepath, metadata))
-            file_count += 1
+                metadata = {
+                    'name': filename,
+                    'size': file_size,
+                    'mtime': file_mtime,
+                    'mtime_str': datetime.fromtimestamp(file_mtime).strftime('%Y-%m-%d %H:%M:%S'),
+                    'hash': None
+                }
+                file_map[key].append((filepath, metadata))
+                file_count += 1
         except (OSError, IOError) as e:
             print(f"\nError accessing {filepath}: {e}")
 
-    if check_hash:
+    if check_hash or check_perceptual_hash:
         print()  # New line after progress
     print(f"Processed {file_count} files")
+
+    # Post-process perceptual hashes to find similar images
+    if check_perceptual_hash:
+        print(f"Comparing {file_count} images for similarity...")
+        processed = set()
+
+        for i, (filepath1, phash1, metadata1) in enumerate(perceptual_hashes):
+            if filepath1 in processed:
+                continue
+
+            # Find all similar images
+            similar_group = [(filepath1, metadata1)]
+            processed.add(filepath1)
+
+            for j, (filepath2, phash2, metadata2) in enumerate(perceptual_hashes):
+                if i >= j or filepath2 in processed:
+                    continue
+
+                # Calculate Hamming distance
+                distance = phash1 - phash2
+
+                if distance <= perceptual_threshold:
+                    similar_group.append((filepath2, metadata2))
+                    processed.add(filepath2)
+
+            # Only add groups with 2+ similar images
+            if len(similar_group) >= 2:
+                # Use first image's hash as key
+                key = (str(phash1),)
+                file_map[key] = similar_group
+
+        print(f"Found {len(file_map)} groups of similar images")
 
     # Filter to only duplicates (where there are 2+ files with same key)
     duplicates = {k: v for k, v in file_map.items() if len(v) > 1}
@@ -188,7 +300,11 @@ def display_duplicates(duplicates, criteria):
         first_metadata = file_list[0][1]
 
         print(f"\nDuplicate set:")
-        if 'hash' in criteria:
+        if 'perceptual_hash' in criteria:
+            print(f"  Perceptual Hash: {first_metadata.get('phash', 'N/A')[:16]}...")
+            print(f"  Size: {first_metadata['size']:,} bytes")
+            print(f"  Similar images found: {len(file_list)}")
+        elif 'hash' in criteria:
             print(f"  Content Hash: {first_metadata['hash'][:16]}... ({len(first_metadata['hash'])} chars)")
             print(f"  Size: {first_metadata['size']:,} bytes")
         else:
@@ -203,7 +319,16 @@ def display_duplicates(duplicates, criteria):
         for i, (path, metadata) in enumerate(file_list, 1):
             # Show additional info if not used in criteria
             extra_info = []
-            if 'hash' in criteria:
+            if 'perceptual_hash' in criteria:
+                # Show name, size, timestamp, and similarity distance
+                extra_info.append(f"name: {metadata['name']}")
+                extra_info.append(f"size: {metadata['size']:,} bytes")
+                extra_info.append(f"modified: {metadata['mtime_str']}")
+                # Calculate distance from first image
+                if i > 1 and 'phash_obj' in metadata and 'phash_obj' in first_metadata:
+                    distance = first_metadata['phash_obj'] - metadata['phash_obj']
+                    extra_info.append(f"similarity distance: {distance}")
+            elif 'hash' in criteria:
                 # Show name and timestamp as extra info
                 extra_info.append(f"name: {metadata['name']}")
                 extra_info.append(f"modified: {metadata['mtime_str']}")
@@ -320,6 +445,12 @@ Examples:
   # Find duplicates by content hash (most accurate, slower)
   python duplicate_finder.py /path/to/folder --check-hash
 
+  # Find visually similar images (perceptual hash)
+  python duplicate_finder.py /path/to/folder --check-perceptual-hash
+
+  # Find similar images with stricter threshold (0-64, lower=stricter)
+  python duplicate_finder.py /path/to/folder --check-perceptual-hash --perceptual-threshold 5
+
   # Find duplicates by name and size only (ignore timestamp)
   python duplicate_finder.py /path/to/folder --no-check-timestamp
 
@@ -328,6 +459,9 @@ Examples:
 
   # Find and interactively delete duplicates
   python duplicate_finder.py /path/to/folder --delete-interactive
+
+  # Find similar images and delete interactively
+  python duplicate_finder.py /path/to/folder --check-perceptual-hash -i
 
   # Find by hash and delete interactively
   python duplicate_finder.py /path/to/folder --check-hash -i
@@ -401,6 +535,30 @@ Examples:
         help='Hash algorithm to use with --check-hash (default: sha256)'
     )
 
+    parser.add_argument(
+        '--check-perceptual-hash',
+        dest='check_perceptual_hash',
+        action='store_true',
+        default=False,
+        help='Use perceptual hash for image duplicate detection (finds visually similar images)'
+    )
+
+    parser.add_argument(
+        '--perceptual-threshold',
+        dest='perceptual_threshold',
+        type=int,
+        default=10,
+        help='Similarity threshold for perceptual hash (0=identical, 64=very different, default: 10)'
+    )
+
+    parser.add_argument(
+        '--perceptual-hash-size',
+        dest='perceptual_hash_size',
+        type=int,
+        default=16,
+        help='Hash size for perceptual hashing (8, 16, or 32; higher=more accurate; default: 16 for 64x64)'
+    )
+
     # Deletion options
     delete_group = parser.add_mutually_exclusive_group()
     delete_group.add_argument(
@@ -421,8 +579,18 @@ Examples:
         print(f"Error: '{args.path}' is not a valid directory")
         return 1
 
-    # When using hash, override other criteria
-    if args.check_hash:
+    # When using perceptual hash, override other criteria
+    if args.check_perceptual_hash:
+        print("Using perceptual hash for image duplicate detection")
+        print("Note: Only image files will be processed\n")
+        duplicates, criteria = find_duplicates(
+            args.path,
+            check_perceptual_hash=True,
+            perceptual_threshold=args.perceptual_threshold,
+            perceptual_hash_size=args.perceptual_hash_size
+        )
+    # When using content hash, override other criteria
+    elif args.check_hash:
         print("Using content hash for duplicate detection")
         print("Note: Name, size, and timestamp criteria are ignored when using --check-hash\n")
         duplicates, criteria = find_duplicates(

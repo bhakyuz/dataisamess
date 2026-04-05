@@ -9,47 +9,124 @@ import shutil
 from pathlib import Path
 from datetime import datetime
 
-def create_minimal_image(filepath, content_id=1):
-    """
-    Create a minimal valid PNG image.
-    Different content_id creates different images.
-    """
-    # Minimal 1x1 PNG with different colors based on content_id
-    png_headers = {
-        1: b'\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x02\x00\x00\x00\x90wS\xde\x00\x00\x00\x0cIDATx\x9cc\xf8\x0f\x00\x00\x01\x01\x00\x05\x00\x00\x00\x00IEND\xaeB`\x82',  # Red pixel
-        2: b'\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x02\x00\x00\x00\x90wS\xde\x00\x00\x00\x0cIDATx\x9cc\xf8\xcf\x00\x00\x00\x00\xff\xff\x00\x00\x00\x00IEND\xaeB`\x82',  # Green pixel
-        3: b'\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x02\x00\x00\x00\x90wS\xde\x00\x00\x00\x0cIDATx\x9cc\x00\x00\x00\x02\x00\x01\x00\x00\x00\x00IEND\xaeB`\x82',  # Blue pixel
-    }
+try:
+    from PIL import Image, ImageDraw, ImageFont, ImageEnhance
+    PIL_AVAILABLE = True
+except ImportError:
+    PIL_AVAILABLE = False
+    print("Warning: PIL not available. Install with: pip install Pillow")
 
-    with open(filepath, 'wb') as f:
-        f.write(png_headers.get(content_id, png_headers[1]))
-
-def create_minimal_video(filepath, content_id=1):
+def create_test_image(filepath, pattern='beach', size=(400, 300)):
     """
-    Create a minimal valid MP4 video file.
-    Different content_id creates different videos.
-    """
-    # Minimal MP4 structure (dummy data, but valid enough for testing)
-    mp4_data = {
-        1: b'ftypisom\x00\x00\x02\x00isomiso2mp41' + b'\x00' * 100 + bytes([content_id] * 50),
-        2: b'ftypisom\x00\x00\x02\x00isomiso2mp41' + b'\x00' * 100 + bytes([content_id] * 50),
-        3: b'ftypisom\x00\x00\x02\x00isomiso2mp41' + b'\x00' * 100 + bytes([content_id] * 50),
-    }
+    Create a real, viewable test image with visual content.
 
-    with open(filepath, 'wb') as f:
-        f.write(mp4_data.get(content_id, mp4_data[1]))
+    Args:
+        filepath: Path to save the image
+        pattern: Type of image pattern ('beach', 'mountain', 'sunset')
+        size: Image dimensions (width, height)
+    """
+    if not PIL_AVAILABLE:
+        print(f"Skipping image creation for {filepath} - PIL not available")
+        return
+
+    img = Image.new('RGB', size)
+    draw = ImageDraw.Draw(img)
+
+    if pattern == 'beach':
+        # Blue sky gradient at top
+        for y in range(size[1] // 2):
+            color = (135 - y // 3, 206 - y // 3, 235)
+            draw.rectangle([0, y, size[0], y + 1], fill=color)
+        # Sandy beach at bottom
+        for y in range(size[1] // 2, size[1]):
+            color = (238, 214, 175)
+            draw.rectangle([0, y, size[0], y + 1], fill=color)
+        # Sun
+        draw.ellipse([size[0] - 100, 30, size[0] - 30, 100], fill=(255, 255, 0))
+        # Add text
+        draw.text((10, 10), "Beach Vacation", fill=(255, 255, 255))
+
+    elif pattern == 'mountain':
+        # Sky
+        for y in range(size[1] * 2 // 3):
+            color = (100, 149, 237)
+            draw.rectangle([0, y, size[0], y + 1], fill=color)
+        # Mountain
+        points = [(0, size[1]), (size[0] // 2, size[1] // 3), (size[0], size[1])]
+        draw.polygon(points, fill=(139, 137, 137))
+        # Add text
+        draw.text((10, 10), "Mountain View", fill=(255, 255, 255))
+
+    elif pattern == 'sunset':
+        # Gradient sunset sky
+        for y in range(size[1]):
+            r = int(255 - (y / size[1]) * 100)
+            g = int(140 - (y / size[1]) * 100)
+            b = int(50 + (y / size[1]) * 100)
+            draw.rectangle([0, y, size[0], y + 1], fill=(r, g, b))
+        # Sun
+        draw.ellipse([size[0] // 2 - 50, size[1] // 2 - 50,
+                     size[0] // 2 + 50, size[1] // 2 + 50], fill=(255, 200, 0))
+        # Add text
+        draw.text((10, 10), "Beautiful Sunset", fill=(255, 255, 255))
+
+    # Save image
+    img.save(filepath)
+
+def create_resized_variant(source_path, dest_path, scale=0.5):
+    """Create a resized version of an image."""
+    if not PIL_AVAILABLE:
+        return
+
+    img = Image.open(source_path)
+    new_size = (int(img.width * scale), int(img.height * scale))
+    resized = img.resize(new_size, Image.Resampling.LANCZOS)
+    resized.save(dest_path)
+
+def create_quality_variant(source_path, dest_path, quality=50):
+    """Create a different quality version of a JPEG image."""
+    if not PIL_AVAILABLE:
+        return
+
+    img = Image.open(source_path)
+    img.save(dest_path, quality=quality)
+
+def create_brightness_variant(source_path, dest_path, factor=1.3):
+    """Create a brightness-adjusted version of an image."""
+    if not PIL_AVAILABLE:
+        return
+
+    img = Image.open(source_path)
+    enhancer = ImageEnhance.Brightness(img)
+    brightened = enhancer.enhance(factor)
+    brightened.save(dest_path)
+
+def create_format_variant(source_path, dest_path):
+    """Convert image to different format (JPG to PNG or vice versa)."""
+    if not PIL_AVAILABLE:
+        return
+
+    img = Image.open(source_path)
+    # Convert RGBA to RGB if saving as JPEG
+    if dest_path.lower().endswith('.jpg') or dest_path.lower().endswith('.jpeg'):
+        if img.mode == 'RGBA':
+            img = img.convert('RGB')
+    img.save(dest_path)
 
 def create_test_archive(base_path='test_archive'):
     """
-    Create test archive with image/video duplicates.
+    Create test archive with real, viewable images and variations for perceptual hash testing.
 
-    Structure:
-    - vacation/ - Original vacation photo
-    - photos/ - Copy of vacation photo with different name
-    - backup/ - Another copy of vacation photo
-    - videos/ - Original and duplicate video
-    - downloads/ - Different image file
+    Test scenarios:
+    1. Beach image: Original + resized + different quality + brightness adjusted
+    2. Mountain image: Original + format converted (PNG)
+    3. Sunset image: Completely different (no duplicates)
     """
+
+    if not PIL_AVAILABLE:
+        print("ERROR: PIL is required to create test images")
+        print("Install with: pip install Pillow")
+        return
 
     # Remove existing test archive
     if os.path.exists(base_path):
@@ -61,62 +138,77 @@ def create_test_archive(base_path='test_archive'):
     folders = [
         'vacation',
         'photos/2024',
+        'photos/edits',
         'backup',
-        'videos',
         'downloads',
     ]
 
     for folder in folders:
         os.makedirs(os.path.join(base_path, folder), exist_ok=True)
 
-    # Scenario 1: Same image content, different names (hash will find these)
-    print("\n1. Creating vacation photo duplicates (same content, different names)...")
-    vacation_img = os.path.join(base_path, 'vacation', 'beach.jpg')
-    create_minimal_image(vacation_img, content_id=1)
-    print(f"   Created: {vacation_img}")
+    # Scenario 1: Beach image with variations (perceptual hash should find these)
+    print("\n1. Creating beach photo with variations...")
+    beach_original = os.path.join(base_path, 'vacation', 'beach.jpg')
+    create_test_image(beach_original, pattern='beach', size=(400, 300))
+    print(f"   Created original: {beach_original} (400x300)")
 
-    # Copy with different name
-    photo_copy = os.path.join(base_path, 'photos/2024', 'summer_vacation.jpg')
-    shutil.copy2(vacation_img, photo_copy)
-    print(f"   Copied to: {photo_copy} (same content, different name)")
+    # Resized version (smaller)
+    beach_resized = os.path.join(base_path, 'photos/2024', 'beach_thumbnail.jpg')
+    create_resized_variant(beach_original, beach_resized, scale=0.5)
+    print(f"   Created resized: {beach_resized} (200x150, should match with perceptual hash)")
 
-    # Another copy in backup
-    backup_copy = os.path.join(base_path, 'backup', 'IMG_001.jpg')
-    shutil.copy2(vacation_img, backup_copy)
-    print(f"   Copied to: {backup_copy} (same content, different name)")
+    # Different JPEG quality
+    beach_compressed = os.path.join(base_path, 'backup', 'beach_compressed.jpg')
+    create_quality_variant(beach_original, beach_compressed, quality=30)
+    print(f"   Created compressed: {beach_compressed} (low quality, should match)")
 
-    # Scenario 2: Different image
-    print("\n2. Creating different image...")
-    different_img = os.path.join(base_path, 'downloads', 'screenshot.png')
-    create_minimal_image(different_img, content_id=2)
-    print(f"   Created: {different_img} (different content)")
+    # Brightness adjusted
+    beach_bright = os.path.join(base_path, 'photos/edits', 'beach_brightened.jpg')
+    create_brightness_variant(beach_original, beach_bright, factor=1.3)
+    print(f"   Created brightened: {beach_bright} (brighter, should match)")
 
-    # Scenario 3: Video duplicates
-    print("\n3. Creating video duplicates...")
-    original_video = os.path.join(base_path, 'videos', 'trip.mp4')
-    create_minimal_video(original_video, content_id=1)
-    print(f"   Created: {original_video}")
+    # Format converted to PNG
+    beach_png = os.path.join(base_path, 'backup', 'beach_copy.png')
+    create_format_variant(beach_original, beach_png)
+    print(f"   Created PNG version: {beach_png} (different format, should match)")
 
-    duplicate_video = os.path.join(base_path, 'videos', 'trip_backup.mp4')
-    shutil.copy2(original_video, duplicate_video)
-    print(f"   Copied to: {duplicate_video} (same content)")
+    # Scenario 2: Mountain image with one variant
+    print("\n2. Creating mountain photo with variant...")
+    mountain_original = os.path.join(base_path, 'vacation', 'mountain.jpg')
+    create_test_image(mountain_original, pattern='mountain', size=(400, 300))
+    print(f"   Created original: {mountain_original}")
 
-    print("\n" + "=" * 70)
+    mountain_resized = os.path.join(base_path, 'downloads', 'mountain_small.jpg')
+    create_resized_variant(mountain_original, mountain_resized, scale=0.7)
+    print(f"   Created resized: {mountain_resized} (should match)")
+
+    # Scenario 3: Sunset image (completely different, no duplicates)
+    print("\n3. Creating unique sunset photo (no duplicates)...")
+    sunset_img = os.path.join(base_path, 'photos/2024', 'sunset.jpg')
+    create_test_image(sunset_img, pattern='sunset', size=(400, 300))
+    print(f"   Created: {sunset_img} (unique, no duplicates)")
+
+    print("\n" + "=" * 80)
     print("Test archive created successfully!")
-    print("=" * 70)
+    print("=" * 80)
     print("\nTest scenarios:")
-    print("  1. Vacation photo: 3 copies with DIFFERENT names (beach.jpg, summer_vacation.jpg, IMG_001.jpg)")
-    print("     - Metadata detection: WON'T find (different names)")
-    print("     - Hash detection: WILL find (same content)")
-    print("\n  2. Video: 2 copies with different names (trip.mp4, trip_backup.mp4)")
-    print("     - Metadata detection: WON'T find (different names)")
-    print("     - Hash detection: WILL find (same content)")
-    print("\n  3. Screenshot: Unique file (no duplicates)")
+    print("  1. Beach photo: 5 variations (original, resized, compressed, brightened, PNG)")
+    print("     - Content hash: WON'T find (different file content)")
+    print("     - Perceptual hash: WILL find all 5 as similar")
+    print("\n  2. Mountain photo: 2 variations (original, resized)")
+    print("     - Content hash: WON'T find")
+    print("     - Perceptual hash: WILL find both")
+    print("\n  3. Sunset photo: Unique (no duplicates)")
+    print("\nTotal files: 8 images")
     print("\nTo test:")
-    print(f"  # Metadata-based (won't find renamed duplicates):")
-    print(f"  python3 duplicate_finder.py {base_path} --no-check-timestamp")
-    print(f"\n  # Hash-based (finds all duplicates):")
-    print(f"  python3 duplicate_finder.py {base_path} --check-hash")
+    print(f"\n  # Content hash (finds only exact duplicates - will find NONE):")
+    print(f"  .venv/bin/python3 duplicate_finder.py {base_path} --check-hash")
+    print(f"\n  # Perceptual hash (finds similar images - will find 2 groups):")
+    print(f"  .venv/bin/python3 duplicate_finder.py {base_path} --check-perceptual-hash")
+    print(f"\n  # Stricter perceptual threshold (may find fewer matches):")
+    print(f"  .venv/bin/python3 duplicate_finder.py {base_path} --check-perceptual-hash --perceptual-threshold 5")
+    print(f"\n  # More lenient threshold (finds more variations):")
+    print(f"  .venv/bin/python3 duplicate_finder.py {base_path} --check-perceptual-hash --perceptual-threshold 15")
     print()
 
 def main():
