@@ -5,10 +5,46 @@ Finds duplicate files based on filename, size, and/or creation timestamp.
 """
 
 import os
+import sys
 import argparse
 from collections import defaultdict
 from pathlib import Path
 from datetime import datetime
+
+
+def getch():
+    """
+    Read a single character from stdin without requiring Enter.
+    Works on both Unix/Linux and Windows.
+    Falls back to regular input if not in a terminal.
+    """
+    # Check if stdin is a terminal
+    if not sys.stdin.isatty():
+        # Fallback to regular input when piping or redirecting
+        line = input()
+        return line.strip()[:1] if line else 'n'
+
+    try:
+        # Unix/Linux/macOS
+        import tty
+        import termios
+        fd = sys.stdin.fileno()
+        old_settings = termios.tcgetattr(fd)
+        try:
+            tty.setraw(fd)
+            ch = sys.stdin.read(1)
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+        return ch
+    except (ImportError, AttributeError, OSError):
+        # Windows or fallback
+        try:
+            import msvcrt
+            return msvcrt.getch().decode('utf-8')
+        except ImportError:
+            # Final fallback
+            line = input()
+            return line.strip()[:1] if line else 'n'
 
 
 def find_duplicates(root_path, check_name=True, check_size=True, check_timestamp=True):
@@ -144,21 +180,33 @@ def delete_duplicates_interactive(duplicates):
         print(f"\nKeeping: {first_path}")
         print(f"Duplicates to delete: {len(file_list) - 1}")
 
-        response = input("Delete duplicates? [y/N/q(quit)]: ").strip().lower()
+        # Loop until valid input is received
+        while True:
+            print("Delete duplicates? [y/N/q(quit)]: ", end='', flush=True)
+            response = getch().lower()
+            print(response)  # Echo the character
 
+            if response == 'q':
+                print("Quitting...")
+                break
+            elif response == 'y':
+                for path, _ in file_list[1:]:
+                    try:
+                        os.remove(path)
+                        print(f"  Deleted: {path}")
+                        deleted_count += 1
+                    except OSError as e:
+                        print(f"  Error deleting {path}: {e}")
+                break
+            elif response == 'n' or response == '\r' or response == '\n':
+                print("  Skipped")
+                break
+            else:
+                print(f"  Invalid input '{response}'. Please press 'y', 'n', or 'q'.")
+
+        # Break out of outer loop if user quit
         if response == 'q':
-            print("Quitting...")
             break
-        elif response == 'y':
-            for path, _ in file_list[1:]:
-                try:
-                    os.remove(path)
-                    print(f"  Deleted: {path}")
-                    deleted_count += 1
-                except OSError as e:
-                    print(f"  Error deleting {path}: {e}")
-        else:
-            print("  Skipped")
 
     print(f"\n{deleted_count} files deleted.")
 

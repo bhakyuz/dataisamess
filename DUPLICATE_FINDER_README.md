@@ -7,7 +7,9 @@ A fast Python tool to find and delete duplicate files based on filename, file si
 - **Fast scanning**: Uses efficient file traversal with os.walk()
 - **Flexible duplicate detection**: Choose which criteria to use (name, size, timestamp)
 - **Timestamp support**: Includes file modification date in duplicate detection
-- **Multiple deletion modes**: Interactive or automatic
+- **Multiple deletion modes**: Interactive (with single-key input) or automatic
+- **Single-key interactive mode**: Press y/n/q without hitting Enter - instant response!
+- **Input validation**: Invalid keys are rejected with helpful error messages
 - **Safe by default**: Always keeps one copy (first occurrence)
 - **Detailed reporting**: Shows wasted space, file counts, and timestamps
 
@@ -40,6 +42,8 @@ This will prompt you for each set of duplicates, asking if you want to delete th
 - Press `y` to delete the duplicates (keeping the first occurrence)
 - Press `n` or Enter to skip
 - Press `q` to quit
+- **Single-key input**: No need to press Enter! Just press the key and it will respond immediately
+- Invalid keys will show an error and ask again
 
 ### 3. Automatic Deletion
 
