@@ -613,15 +613,15 @@ Examples:
         dest='keep_strategy',
         action='store_const',
         const='first',
-        default='first',
-        help='Keep the first file found in each duplicate set (default)'
+        default='largest',
+        help='Keep the first file found in each duplicate set'
     )
     keep_group.add_argument(
         '--keep-largest',
         dest='keep_strategy',
         action='store_const',
         const='largest',
-        help='Keep the largest file (by file size) in each duplicate set'
+        help='Keep the largest file (by file size) in each duplicate set (default)'
     )
 
     # Deletion options
