@@ -1,3 +1,8 @@
 # Image processing for perceptual hashing
 Pillow>=10.0.0
 imagehash>=4.3.1
+
+# Media metadata extraction
+exifread>=3.0.0
+pymediainfo>=6.0.0
+tqdm>=4.65.0
