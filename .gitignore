@@ -6,6 +6,7 @@
 _site
 Gemfile.lock
 .jekyll-cache
+__pycache__/
 
 .venv
 .vscode

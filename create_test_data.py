@@ -6,6 +6,7 @@ Creates a simple test archive with image/video duplicates for testing.
 
 import os
 import shutil
+import time
 from pathlib import Path
 from datetime import datetime
 
@@ -113,14 +114,37 @@ def create_format_variant(source_path, dest_path):
             img = img.convert('RGB')
     img.save(dest_path)
 
+def create_exact_copy(source_path, dest_path, modify_timestamp=True, timestamp_offset=0):
+    """
+    Create an exact copy of a file (for content hash testing).
+
+    Args:
+        source_path: Source file to copy
+        dest_path: Destination path
+        modify_timestamp: If True, modify the timestamp to be different from source
+        timestamp_offset: Seconds to add to current time for the modified timestamp
+    """
+    # Copy the file
+    shutil.copy2(source_path, dest_path)
+
+    # Modify timestamp if requested
+    if modify_timestamp:
+        # Get current time and add offset
+        new_mtime = time.time() + timestamp_offset
+        os.utime(dest_path, (new_mtime, new_mtime))
+
+    return dest_path
+
 def create_test_archive(base_path='test_archive'):
     """
-    Create test archive with real, viewable images and variations for perceptual hash testing.
+    Create test archive with real, viewable images for testing all duplicate detection methods.
 
     Test scenarios:
-    1. Beach image: Original + resized + different quality + brightness adjusted
-    2. Mountain image: Original + format converted (PNG)
+    1. Beach image: Original + resized + different quality + brightness adjusted (perceptual hash test)
+    2. Mountain image: Original + resized (perceptual hash test)
     3. Sunset image: Completely different (no duplicates)
+    4. City image: 3 exact duplicates with different names and timestamps (content hash test)
+    5. Notes.jpg: 3 copies with same filename in different locations (name matching test)
     """
 
     if not PIL_AVAILABLE:
@@ -188,6 +212,38 @@ def create_test_archive(base_path='test_archive'):
     create_test_image(sunset_img, pattern='sunset', size=(400, 300))
     print(f"   Created: {sunset_img} (unique, no duplicates)")
 
+    # Scenario 4: Exact duplicates with different names (for content hash testing)
+    print("\n4. Creating exact duplicates with different names (content hash test)...")
+    # Create a new city photo
+    city_original = os.path.join(base_path, 'vacation', 'city.jpg')
+    create_test_image(city_original, pattern='beach', size=(300, 300))
+    print(f"   Created original: {city_original}")
+
+    # Create exact copies with different names and timestamps
+    city_copy1 = os.path.join(base_path, 'backup', 'urban_landscape.jpg')
+    create_exact_copy(city_original, city_copy1, modify_timestamp=True, timestamp_offset=60)
+    print(f"   Created exact copy: {city_copy1} (different name, different timestamp)")
+
+    city_copy2 = os.path.join(base_path, 'downloads', 'IMG_9876.jpg')
+    create_exact_copy(city_original, city_copy2, modify_timestamp=True, timestamp_offset=120)
+    print(f"   Created exact copy: {city_copy2} (different name, different timestamp)")
+
+    # Scenario 5: Same filename duplicates in different folders (for name matching)
+    print("\n5. Creating same-filename duplicates (name matching test)...")
+    document = os.path.join(base_path, 'photos/2024', 'notes.jpg')
+    create_test_image(document, pattern='sunset', size=(200, 200))
+    print(f"   Created original: {document}")
+
+    # Copy with same filename to different location
+    document_copy = os.path.join(base_path, 'backup', 'notes.jpg')
+    create_exact_copy(document, document_copy, modify_timestamp=False)
+    print(f"   Created copy: {document_copy} (same name, same content, same timestamp)")
+
+    # Another copy in a different location
+    document_copy2 = os.path.join(base_path, 'downloads', 'notes.jpg')
+    create_exact_copy(document, document_copy2, modify_timestamp=True, timestamp_offset=30)
+    print(f"   Created copy: {document_copy2} (same name, same content, different timestamp)")
+
     print("\n" + "=" * 80)
     print("Test archive created successfully!")
     print("=" * 80)
@@ -199,11 +255,26 @@ def create_test_archive(base_path='test_archive'):
     print("     - Content hash: WON'T find")
     print("     - Perceptual hash: WILL find both")
     print("\n  3. Sunset photo: Unique (no duplicates)")
-    print("\nTotal files: 8 images")
+    print("\n  4. City photo: 3 exact duplicates with different names")
+    print("     - Metadata (name+size+timestamp): WON'T find (different names & timestamps)")
+    print("     - Content hash: WILL find all 3")
+    print("     - Perceptual hash: WILL find all 3")
+    print("\n  5. Notes.jpg: 3 copies with same filename")
+    print("     - Metadata (name only): WILL find all 3")
+    print("     - Metadata (name+size): WILL find all 3")
+    print("     - Metadata (name+size+timestamp): WILL find 2 (one has different timestamp)")
+    print("     - Content hash: WILL find all 3")
+    print("\nTotal files: 14 images")
     print("\nTo test:")
-    print(f"\n  # Content hash (finds only exact duplicates - will find NONE):")
+    print(f"\n  # Metadata - name only (finds same-filename duplicates):")
+    print(f"  .venv/bin/python3 duplicate_finder.py {base_path} --no-check-size --no-check-timestamp")
+    print(f"\n  # Metadata - name + size (finds same name & size):")
+    print(f"  .venv/bin/python3 duplicate_finder.py {base_path} --no-check-timestamp")
+    print(f"\n  # Metadata - all criteria (name + size + timestamp):")
+    print(f"  .venv/bin/python3 duplicate_finder.py {base_path}")
+    print(f"\n  # Content hash (finds exact content duplicates - will find 2 groups):")
     print(f"  .venv/bin/python3 duplicate_finder.py {base_path} --check-hash")
-    print(f"\n  # Perceptual hash (finds similar images - will find 2 groups):")
+    print(f"\n  # Perceptual hash (finds visually similar images - will find 4 groups):")
     print(f"  .venv/bin/python3 duplicate_finder.py {base_path} --check-perceptual-hash")
     print(f"\n  # Stricter perceptual threshold (may find fewer matches):")
     print(f"  .venv/bin/python3 duplicate_finder.py {base_path} --check-perceptual-hash --perceptual-threshold 5")

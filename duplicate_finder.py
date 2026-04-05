@@ -283,8 +283,34 @@ def find_duplicates(root_path, check_name=True, check_size=True, check_timestamp
     return duplicates, criteria
 
 
-def display_duplicates(duplicates, criteria):
-    """Display found duplicates in a readable format."""
+def sort_duplicates_by_strategy(file_list, keep_strategy='first'):
+    """
+    Sort duplicate files based on keep strategy.
+
+    Args:
+        file_list: List of (filepath, metadata) tuples
+        keep_strategy: 'first' (keep first found) or 'largest' (keep largest file)
+
+    Returns:
+        Sorted list with the file to keep as the first element
+    """
+    if keep_strategy == 'largest':
+        # Sort by file size (descending), largest first
+        return sorted(file_list, key=lambda x: x[1]['size'], reverse=True)
+    else:
+        # Keep original order (first found)
+        return file_list
+
+
+def display_duplicates(duplicates, criteria, keep_strategy='first'):
+    """
+    Display found duplicates in a readable format.
+
+    Args:
+        duplicates: Dictionary of duplicate files
+        criteria: List of criteria used for detection
+        keep_strategy: Strategy for which file to keep ('first' or 'largest')
+    """
     if not duplicates:
         print("\nNo duplicates found!")
         return
@@ -296,14 +322,17 @@ def display_duplicates(duplicates, criteria):
     total_wasted_space = 0
 
     for key, file_list in duplicates.items():
-        # Get metadata from first file for display
-        first_metadata = file_list[0][1]
+        # Sort files based on keep strategy
+        sorted_list = sort_duplicates_by_strategy(file_list, keep_strategy)
+
+        # Get metadata from first file for display (the one to keep)
+        first_metadata = sorted_list[0][1]
 
         print(f"\nDuplicate set:")
         if 'perceptual_hash' in criteria:
             print(f"  Perceptual Hash: {first_metadata.get('phash', 'N/A')[:16]}...")
             print(f"  Size: {first_metadata['size']:,} bytes")
-            print(f"  Similar images found: {len(file_list)}")
+            print(f"  Similar images found: {len(sorted_list)}")
         elif 'hash' in criteria:
             print(f"  Content Hash: {first_metadata['hash'][:16]}... ({len(first_metadata['hash'])} chars)")
             print(f"  Size: {first_metadata['size']:,} bytes")
@@ -315,8 +344,8 @@ def display_duplicates(duplicates, criteria):
             if 'timestamp' in criteria:
                 print(f"  Modified: {first_metadata['mtime_str']}")
 
-        print(f"  Found {len(file_list)} copies:")
-        for i, (path, metadata) in enumerate(file_list, 1):
+        print(f"  Found {len(sorted_list)} copies:")
+        for i, (path, metadata) in enumerate(sorted_list, 1):
             # Show additional info if not used in criteria
             extra_info = []
             if 'perceptual_hash' in criteria:
@@ -339,35 +368,46 @@ def display_duplicates(duplicates, criteria):
                     extra_info.append(f"size: {metadata['size']:,} bytes")
 
             extra_str = f" ({', '.join(extra_info)})" if extra_info else ""
-            print(f"    [{i}] {path}{extra_str}")
+            # Mark the first file as the one to keep
+            keep_marker = " [KEEP]" if i == 1 else ""
+            print(f"    [{i}] {path}{extra_str}{keep_marker}")
 
-        total_duplicate_files += len(file_list) - 1
-        total_wasted_space += (len(file_list) - 1) * first_metadata['size']
+        total_duplicate_files += len(sorted_list) - 1
+        total_wasted_space += sum(metadata['size'] for _, metadata in sorted_list[1:])
 
     print("=" * 80)
     print(f"Total duplicate files (excluding originals): {total_duplicate_files}")
     print(f"Wasted space: {total_wasted_space:,} bytes ({total_wasted_space / (1024*1024):.2f} MB)")
 
 
-def delete_duplicates_interactive(duplicates):
-    """Interactively delete duplicates, keeping the first occurrence."""
+def delete_duplicates_interactive(duplicates, keep_strategy='first'):
+    """
+    Interactively delete duplicates.
+
+    Args:
+        duplicates: Dictionary of duplicate files
+        keep_strategy: Strategy for which file to keep ('first' or 'largest')
+    """
     if not duplicates:
         print("No duplicates to delete.")
         return
 
     deleted_count = 0
     for file_list in duplicates.values():
-        first_path, first_metadata = file_list[0]
+        # Sort files based on keep strategy
+        sorted_list = sort_duplicates_by_strategy(file_list, keep_strategy)
+        first_path, first_metadata = sorted_list[0]
 
         print(f"\n{'=' * 80}")
         print(f"Duplicate set: {first_metadata['name']} ({first_metadata['size']:,} bytes)")
         print(f"Modified: {first_metadata['mtime_str']}")
-        print(f"Found {len(file_list)} copies:")
-        for i, (path, metadata) in enumerate(file_list, 1):
-            print(f"  [{i}] {path}")
+        print(f"Found {len(sorted_list)} copies:")
+        for i, (path, metadata) in enumerate(sorted_list, 1):
+            keep_marker = " [KEEP]" if i == 1 else ""
+            print(f"  [{i}] {path} ({metadata['size']:,} bytes){keep_marker}")
 
         print(f"\nKeeping: {first_path}")
-        print(f"Duplicates to delete: {len(file_list) - 1}")
+        print(f"Duplicates to delete: {len(sorted_list) - 1}")
 
         # Loop until valid input is received
         while True:
@@ -379,7 +419,7 @@ def delete_duplicates_interactive(duplicates):
                 print("Quitting...")
                 break
             elif response == 'y':
-                for path, _ in file_list[1:]:
+                for path, _ in sorted_list[1:]:
                     try:
                         os.remove(path)
                         print(f"  Deleted: {path}")
@@ -400,32 +440,33 @@ def delete_duplicates_interactive(duplicates):
     print(f"\n{deleted_count} files deleted.")
 
 
-def delete_duplicates_auto(duplicates, keep_first=True):
+def delete_duplicates_auto(duplicates, keep_strategy='first'):
     """
     Automatically delete duplicates.
 
     Args:
         duplicates: Dictionary of duplicate files
-        keep_first: If True, keep the first occurrence; otherwise keep the last
+        keep_strategy: Strategy for which file to keep ('first' or 'largest')
     """
     if not duplicates:
         print("No duplicates to delete.")
         return
 
-    print("\nAuto-deleting duplicates (keeping first occurrence)...")
+    strategy_desc = "largest file" if keep_strategy == 'largest' else "first occurrence"
+    print(f"\nAuto-deleting duplicates (keeping {strategy_desc})...")
     deleted_count = 0
 
     for file_list in duplicates.values():
-        # Keep first, delete rest
-        keep_index = 0 if keep_first else -1
-        to_delete = file_list[1:] if keep_first else file_list[:-1]
+        # Sort files based on keep strategy
+        sorted_list = sort_duplicates_by_strategy(file_list, keep_strategy)
 
-        keep_path = file_list[keep_index][0]
-        print(f"\nKeeping: {keep_path}")
-        for path, _ in to_delete:
+        keep_path = sorted_list[0][0]
+        keep_size = sorted_list[0][1]['size']
+        print(f"\nKeeping: {keep_path} ({keep_size:,} bytes)")
+        for path, metadata in sorted_list[1:]:
             try:
                 os.remove(path)
-                print(f"  Deleted: {path}")
+                print(f"  Deleted: {path} ({metadata['size']:,} bytes)")
                 deleted_count += 1
             except OSError as e:
                 print(f"  Error deleting {path}: {e}")
@@ -468,6 +509,12 @@ Examples:
 
   # Automatically delete duplicates (keep first occurrence)
   python duplicate_finder.py /path/to/folder --delete-auto
+
+  # Keep largest files when deleting duplicates
+  python duplicate_finder.py /path/to/folder --check-perceptual-hash --keep-largest -i
+
+  # Auto-delete similar images, keeping the largest version
+  python duplicate_finder.py /path/to/folder --check-perceptual-hash --keep-largest -a
         """
     )
 
@@ -559,6 +606,24 @@ Examples:
         help='Hash size for perceptual hashing (8, 16, or 32; higher=more accurate; default: 16 for 64x64)'
     )
 
+    # Keep strategy options
+    keep_group = parser.add_mutually_exclusive_group()
+    keep_group.add_argument(
+        '--keep-first',
+        dest='keep_strategy',
+        action='store_const',
+        const='first',
+        default='first',
+        help='Keep the first file found in each duplicate set (default)'
+    )
+    keep_group.add_argument(
+        '--keep-largest',
+        dest='keep_strategy',
+        action='store_const',
+        const='largest',
+        help='Keep the largest file (by file size) in each duplicate set'
+    )
+
     # Deletion options
     delete_group = parser.add_mutually_exclusive_group()
     delete_group.add_argument(
@@ -569,7 +634,7 @@ Examples:
     delete_group.add_argument(
         '--delete-auto', '-a',
         action='store_true',
-        help='Automatically delete duplicates (keep first occurrence)'
+        help='Automatically delete duplicates (respects --keep-first or --keep-largest)'
     )
 
     args = parser.parse_args()
@@ -614,21 +679,22 @@ Examples:
         )
 
     # Display results
-    display_duplicates(duplicates, criteria)
+    display_duplicates(duplicates, criteria, keep_strategy=args.keep_strategy)
 
     # Handle deletion if requested
     if args.delete_interactive:
         print("\n" + "=" * 80)
         print("INTERACTIVE DELETION MODE")
         print("=" * 80)
-        delete_duplicates_interactive(duplicates)
+        delete_duplicates_interactive(duplicates, keep_strategy=args.keep_strategy)
     elif args.delete_auto:
         print("\n" + "=" * 80)
         print("AUTOMATIC DELETION MODE")
         print("=" * 80)
-        confirm = input("This will automatically delete duplicates. Continue? [y/N]: ")
+        strategy_desc = "largest file" if args.keep_strategy == 'largest' else "first occurrence"
+        confirm = input(f"This will automatically delete duplicates (keeping {strategy_desc}). Continue? [y/N]: ")
         if confirm.strip().lower() == 'y':
-            delete_duplicates_auto(duplicates)
+            delete_duplicates_auto(duplicates, keep_strategy=args.keep_strategy)
         else:
             print("Cancelled.")
 
