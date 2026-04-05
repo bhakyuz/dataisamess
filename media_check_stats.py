@@ -13,21 +13,88 @@ from pathlib import Path
 import exifread
 from pymediainfo import MediaInfo
 from tqdm import tqdm
+from PIL import Image
+from pillow_heif import register_heif_opener
+
+# Enable HEIF support in Pillow
+register_heif_opener()
 
 
 # File type definitions
 IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.tiff', '.tif',
                    '.cr2', '.nef', '.arw', '.dng', '.orf', '.rw2',
-                   '.cr3', '.raf', '.raw', '.pef', '.srw'}
+                   '.cr3', '.raf', '.raw', '.pef', '.srw',
+                   '.heic', '.heif'}
 
 VIDEO_EXTENSIONS = {'.mp4', '.mov', '.avi', '.mkv', '.m4v',
                    '.wmv', '.flv', '.webm', '.mts', '.m2ts',
                    '.3gp', '.mpg', '.mpeg', '.ogv'}
 
 
+def is_valid_metadata(value):
+    """
+    Check if metadata value is valid (not None, empty, or 'Unknown').
+
+    Filters out common invalid/placeholder values like:
+    - None, empty strings
+    - "Unknown", "N/A", "None", "null"
+
+    Args:
+        value: Metadata value to validate
+
+    Returns:
+        bool: True if valid, False if invalid/placeholder
+    """
+    if not value:
+        return False
+
+    # Normalize and check against invalid values
+    value_normalized = value.strip().lower()
+    invalid_values = {'unknown', 'n/a', 'na', 'none', 'null', ''}
+
+    return value_normalized not in invalid_values
+
+
+def extract_heif_metadata(filepath):
+    """
+    Extract camera make and model from HEIF/HEIC image files.
+
+    HEIF files need special handling as exifread doesn't support them well.
+    Uses PIL with pillow-heif plugin to read EXIF data.
+
+    Args:
+        filepath: Path to HEIF/HEIC file
+
+    Returns:
+        tuple: (make, model) or (None, None) if no EXIF data
+    """
+    try:
+        img = Image.open(filepath)
+        exif = img.getexif()
+
+        # EXIF tag numbers: 271=Make, 272=Model
+        make = exif.get(271)
+        model = exif.get(272)
+
+        # Convert to string and strip whitespace
+        make = make.strip() if make else None
+        model = model.strip() if model else None
+
+        # Validate metadata (filter out "Unknown" strings)
+        make = make if is_valid_metadata(make) else None
+        model = model if is_valid_metadata(model) else None
+
+        return make, model
+    except Exception as e:
+        return None, None
+
+
 def extract_image_metadata(filepath):
     """
     Extract camera make and model from image EXIF data.
+
+    Routes HEIF/HEIC files to special handler.
+    Uses exifread for other image formats.
 
     Args:
         filepath: Path to image file
@@ -35,6 +102,12 @@ def extract_image_metadata(filepath):
     Returns:
         tuple: (make, model) or (None, None) if no EXIF data
     """
+    # HEIF files need special handling
+    ext = os.path.splitext(filepath)[1].lower()
+    if ext in {'.heic', '.heif'}:
+        return extract_heif_metadata(filepath)
+
+    # Other images use exifread (faster)
     try:
         with open(filepath, 'rb') as f:
             tags = exifread.process_file(f, details=False)
@@ -45,6 +118,10 @@ def extract_image_metadata(filepath):
         # Convert to string and strip whitespace
         make = str(make).strip() if make else None
         model = str(model).strip() if model else None
+
+        # Validate metadata (filter out "Unknown" strings)
+        make = make if is_valid_metadata(make) else None
+        model = model if is_valid_metadata(model) else None
 
         return make, model
     except Exception as e:
@@ -88,6 +165,10 @@ def extract_video_metadata(filepath):
         # Strip whitespace if found
         make = make.strip() if make else None
         model = model.strip() if model else None
+
+        # Validate metadata (filter out "Unknown" strings)
+        make = make if is_valid_metadata(make) else None
+        model = model if is_valid_metadata(model) else None
 
         return make, model
     except Exception as e:
