@@ -9,3 +9,6 @@ Gemfile.lock
 
 .venv
 .vscode
+
+# Duplicate finder test data
+test_archive/

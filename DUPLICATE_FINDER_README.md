@@ -2,6 +2,19 @@
 
 A fast Python tool to find and delete duplicate files based on filename, file size, modification timestamp, or **content hash**.
 
+## Quick Start
+
+```bash
+# Generate test data to try it out
+python3 create_test_data.py
+
+# Test with hash detection (finds all duplicates)
+python3 duplicate_finder.py test_archive --check-hash
+
+# Test with metadata detection (finds only exact name matches)
+python3 duplicate_finder.py test_archive --no-check-timestamp
+```
+
 ## Features
 
 - **Fast scanning**: Uses efficient file traversal with os.walk()
