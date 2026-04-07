@@ -289,7 +289,7 @@ def sort_duplicates_by_strategy(file_list, keep_strategy='first'):
 
     Args:
         file_list: List of (filepath, metadata) tuples
-        keep_strategy: 'first' (keep first found) or 'largest' (keep largest file)
+        keep_strategy: 'first' (keep alphabetically first) or 'largest' (keep largest file)
 
     Returns:
         Sorted list with the file to keep as the first element
@@ -298,8 +298,8 @@ def sort_duplicates_by_strategy(file_list, keep_strategy='first'):
         # Sort by file size (descending), largest first
         return sorted(file_list, key=lambda x: x[1]['size'], reverse=True)
     else:
-        # Keep original order (first found)
-        return file_list
+        # Sort alphabetically by filepath
+        return sorted(file_list, key=lambda x: x[0])
 
 
 def display_duplicates(duplicates, criteria, keep_strategy='first'):
@@ -452,7 +452,7 @@ def delete_duplicates_auto(duplicates, keep_strategy='first'):
         print("No duplicates to delete.")
         return
 
-    strategy_desc = "largest file" if keep_strategy == 'largest' else "first occurrence"
+    strategy_desc = "largest file" if keep_strategy == 'largest' else "alphabetically first file"
     print(f"\nAuto-deleting duplicates (keeping {strategy_desc})...")
     deleted_count = 0
 
@@ -507,8 +507,8 @@ Examples:
   # Find by hash and delete interactively
   python duplicate_finder.py /path/to/folder --check-hash -i
 
-  # Automatically delete duplicates (keep first occurrence)
-  python duplicate_finder.py /path/to/folder --delete-auto
+  # Automatically delete duplicates (keep alphabetically first file)
+  python duplicate_finder.py /path/to/folder --delete-auto --keep-first
 
   # Keep largest files when deleting duplicates
   python duplicate_finder.py /path/to/folder --check-perceptual-hash --keep-largest -i
@@ -614,7 +614,7 @@ Examples:
         action='store_const',
         const='first',
         default='largest',
-        help='Keep the first file found in each duplicate set'
+        help='Keep the alphabetically first file (by path) in each duplicate set'
     )
     keep_group.add_argument(
         '--keep-largest',
@@ -691,7 +691,7 @@ Examples:
         print("\n" + "=" * 80)
         print("AUTOMATIC DELETION MODE")
         print("=" * 80)
-        strategy_desc = "largest file" if args.keep_strategy == 'largest' else "first occurrence"
+        strategy_desc = "largest file" if args.keep_strategy == 'largest' else "alphabetically first file"
         confirm = input(f"This will automatically delete duplicates (keeping {strategy_desc}). Continue? [y/N]: ")
         if confirm.strip().lower() == 'y':
             delete_duplicates_auto(duplicates, keep_strategy=args.keep_strategy)
